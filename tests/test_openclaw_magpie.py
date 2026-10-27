@@ -167,7 +167,9 @@ class TestConfigPath(unittest.TestCase):
         old = os.environ.get("OPENCLAW_CONFIG_PATH")
         os.environ["OPENCLAW_CONFIG_PATH"] = "/tmp/somewhere.json"
         try:
-            self.assertEqual(str(om.openclaw_config()), "/tmp/somewhere.json")
+            # compare as Path objects: on Windows, Path("/tmp/x") normalises
+            # to "\\tmp\\x", so a string comparison would fail there
+            self.assertEqual(om.openclaw_config(), Path("/tmp/somewhere.json"))
         finally:
             if old is None:
                 os.environ.pop("OPENCLAW_CONFIG_PATH", None)
@@ -177,8 +179,10 @@ class TestConfigPath(unittest.TestCase):
     def test_default_path(self):
         old = os.environ.pop("OPENCLAW_CONFIG_PATH", None)
         try:
-            self.assertTrue(str(om.openclaw_config()).endswith(
-                os.path.join(".openclaw", "openclaw.json")))
+            self.assertEqual(
+                om.openclaw_config(),
+                Path.home() / ".openclaw" / "openclaw.json",
+            )
         finally:
             if old is not None:
                 os.environ["OPENCLAW_CONFIG_PATH"] = old
