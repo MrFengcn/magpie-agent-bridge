@@ -33,16 +33,30 @@ point it at the gateway yourself.
 
 ## Install
 
-### As a skill
+### One line — for any agent
 
-Drop the folder into your agent's skills directory:
+Paste this into Claude Code, Hermes, OpenClaw, Codex, Cursor, or any agent that
+supports skills:
+
+```
+npx -y skills@latest add MrFengcn/magpie-agent-bridge -g -a '*' -s '*' -y
+```
+
+That installs `magpie-agent-bridge` into every agent on the machine. The
+[skills CLI](https://www.npmjs.com/package/skills) detects which agents you run
+and installs into each one's skills directory.
+
+To install into one agent only:
+
+```
+npx -y skills@latest add MrFengcn/magpie-agent-bridge -g -a claude -y
+```
+
+### As a skill, by hand
 
 ```bash
-# Hermes / Claude Code / OpenClaw style
-cp -r magpie-agent-bridge ~/.hermes/skills/
-
-# or symlink
-ln -s ~/path/to/magpie-agent-bridge ~/.hermes/skills/magpie-agent-bridge
+git clone https://github.com/MrFengcn/magpie-agent-bridge.git
+cp -r magpie-agent-bridge ~/.hermes/skills/        # or ~/.claude/skills/, ~/.agents/skills/, …
 ```
 
 ### As a standalone tool

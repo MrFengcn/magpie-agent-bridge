@@ -44,6 +44,32 @@ config format correctly, preserving comments and ordering. For everything else,
 write the provider block yourself; the gateway speaks four API dialects, so most
 agents fit.
 
+## Install
+
+One line, for any agent on the machine:
+
+```bash
+npx -y skills@latest add MrFengcn/magpie-agent-bridge -g -a '*' -s '*' -y
+```
+
+The [skills CLI](https://www.npmjs.com/package/skills) detects which agents are
+installed and copies the skill into each one's skills directory. One agent only:
+`-a claude` instead of `-a '*'`.
+
+By hand: clone the repo and copy it into the agent's skills directory
+(`~/.hermes/skills/`, `~/.claude/skills/`, `~/.agents/skills/`, `~/.codex/skills/`).
+
+As a standalone tool, no skill install needed:
+
+```bash
+git clone https://github.com/MrFengcn/magpie-agent-bridge.git
+cd magpie-agent-bridge
+python3 scripts/magpie_bridge.py doctor
+```
+
+Requirements: Python 3.9+ and magpie running (`magpie autostart on` on macOS keeps it
+up at login).
+
 ## Quick start
 
 ```bash
