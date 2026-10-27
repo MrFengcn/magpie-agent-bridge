@@ -56,8 +56,9 @@ jobs:
       - name: no secrets in the repo
         run: |
           # The gateway key is the literal word "magpie" — never a real credential.
-          if grep -rInE "ghp_|gho_|github_pat_|sk-[A-Za-z0-9]{20,}|ark-[a-f0-9-]{30,}" \
-             --exclude-dir=.git . ; then
+          # Skip this workflow file: it contains the patterns themselves.
+          if grep -rInE "ghp_[A-Za-z0-9]{20,}|gho_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9]{30,}|ark-[a-f0-9-]{40,}" \
+             --exclude-dir=.git --exclude=ci.yml . ; then
             echo "::error::possible credential found in the repository"
             exit 1
           fi
