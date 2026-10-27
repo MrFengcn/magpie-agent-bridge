@@ -199,5 +199,43 @@ class TestJsonRoundTrip(unittest.TestCase):
             json.loads(p.read_text(encoding="utf-8"))
 
 
+class TestWiredStatePrimaryShapes(unittest.TestCase):
+    """`agents.defaults.model` is written both as an object and as a bare string.
+
+    OpenClaw's gateway flips it to the string form when the default model is
+    changed out of band (seen 2026-10-27 15:40:37). `doctor` must read both
+    instead of dying with 'str' object has no attribute 'get'.
+    """
+
+    def cfg(self, model):
+        return {
+            "models": {"providers": {"magpie": {
+                "baseUrl": "http://127.0.0.1:3425/v1",
+                "apiKey": "magpie",
+                "api": "openai-completions",
+                "models": [{"id": "group/cheap-first"}],
+            }}},
+            "agents": {"defaults": {
+                "models": {"magpie/group/cheap-first": {}},
+                "modelPolicy": {"allow": ["magpie/group/cheap-first"]},
+                "model": model,
+            }},
+        }
+
+    def test_primary_as_object(self):
+        st = om.wired_state(self.cfg({"primary": "other/x"}))
+        self.assertEqual(st["primary"], "other/x")
+        self.assertEqual(st["models"], 1)
+        self.assertEqual(st["in_registry"], 1)
+        self.assertEqual(st["in_allow"], 1)
+
+    def test_primary_as_bare_string(self):
+        st = om.wired_state(self.cfg("magpie/group/cheap-first"))
+        self.assertEqual(st["primary"], "magpie/group/cheap-first")
+
+    def test_primary_absent(self):
+        self.assertIsNone(om.wired_state(self.cfg(None))["primary"])
+
+
 if __name__ == "__main__":
     unittest.main()

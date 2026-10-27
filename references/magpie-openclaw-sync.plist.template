@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.walter.magpie-openclaw-sync</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/python3</string>
+        <string>__HOME__/.hermes/scripts/magpie_openclaw_sync.py</string>
+    </array>
+    <!-- magpie persists its provider/plugin catalog here; a change means the
+         gateway's model list probably changed, so sync right away -->
+    <key>WatchPaths</key>
+    <array>
+        <string>__HOME__/.config/magpie</string>
+        <string>__HOME__/.config/magpie/providers.json</string>
+        <string>__HOME__/.config/magpie/plugin-providers.json</string>
+    </array>
+    <!-- backstop for changes the watcher misses (e.g. gateway-only updates) -->
+    <key>StartInterval</key>
+    <integer>1800</integer>
+    <key>RunAtLoad</key>
+    <false/>
+    <key>StandardOutPath</key>
+    <string>__HOME__/.hermes/logs/magpie-openclaw-sync.launchd.log</string>
+    <key>StandardErrorPath</key>
+    <string>__HOME__/.hermes/logs/magpie-openclaw-sync.launchd.err.log</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin</string>
+    </dict>
+    <key>ProcessType</key>
+    <string>Background</string>
+</dict>
+</plist>

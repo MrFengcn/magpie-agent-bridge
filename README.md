@@ -140,6 +140,51 @@ The script handles all of them.
 
 ---
 
+## Keeping them in sync (automatic)
+
+magpie's model list changes whenever you add a provider account, a plugin or a
+routing group. Nothing pushes that into `openclaw.json` — so `install` alone leaves
+you behind.
+
+The sync script closes that loop:
+
+```bash
+python3 scripts/magpie_openclaw_sync.py --dry-run   # report only; exit 2 = would change
+python3 scripts/magpie_openclaw_sync.py             # sync, restart gateway if changed
+python3 scripts/magpie_openclaw_sync.py --no-restart
+python3 scripts/magpie_openclaw_sync.py --force     # rewrite + restart even if unchanged
+```
+
+It does more than `install` does:
+
+| | `install` | `sync` |
+|---|---|---|
+| adds models | ✅ | ✅ |
+| removes models the gateway dropped | ❌ | ✅ |
+| refreshes entries whose metadata changed | ❌ | ✅ |
+| restarts the gateway | always | only when something changed |
+| validates and rolls back on failure | ✅ | ✅ |
+
+To install the automation — script, skill, launchd job and a Hermes cron task:
+
+```bash
+bash scripts/install-sync.sh      # --no-launchd / --dry-run / --no-restart
+bash scripts/uninstall-sync.sh    # --with-wiring / --purge
+```
+
+The cron task runs every 30 minutes with `no_agent`, so it costs no LLM calls and
+stays silent when there is nothing to do. On macOS the launchd job additionally
+watches magpie's config directory, so a model change lands within seconds.
+
+> The launchd job may fail to load with `! 加载失败` — Hermes blocks `launchctl`
+> from inside its own gateway session. Run
+> `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.walter.magpie-openclaw-sync.plist`
+> from a plain shell, or rely on the cron task alone.
+
+Log: `~/.hermes/logs/magpie-openclaw-sync.log`.
+
+---
+
 ## Layout
 
 ```
@@ -148,11 +193,17 @@ magpie-agent-bridge/
 ├── README.md
 ├── LICENSE                         # MIT
 ├── scripts/
-│   └── openclaw_magpie.py          # doctor / list / install / uninstall / verify
+│   ├── openclaw_magpie.py          # doctor / list / install / uninstall / verify
+│   ├── magpie_openclaw_sync.py     # keep openclaw.json in step with the gateway
+│   ├── install-sync.sh             # install the sync automation
+│   └── uninstall-sync.sh           # remove it
 ├── tests/
-│   └── test_openclaw_magpie.py
-└── references/
-    └── platforms.md                # macOS / Windows / Linux specifics
+│   ├── test_openclaw_magpie.py
+│   └── test_magpie_openclaw_sync.py
+├── references/
+│   ├── platforms.md                # macOS / Windows / Linux specifics
+│   └── magpie-openclaw-sync.plist.template   # macOS launchd job
+└── .github/workflows/ci.yml
 ```
 
 ---

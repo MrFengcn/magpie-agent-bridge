@@ -1,11 +1,11 @@
 ---
 name: openclaw-magpie
 description: "Use when wiring OpenClaw to magpie's local gateway."
-version: 2.0.0
+version: 2.1.0
 author: Walter (MrFengcn)
 license: MIT
 tags: [magpie, openclaw, gateway, llm, provider, model-router]
-related_skills: [openclaw-configuration]
+related_skills: [openclaw-configuration, skill-publishing]
 ---
 
 # OpenClaw → magpie gateway
@@ -57,6 +57,17 @@ npx -y skills@latest add MrFengcn/magpie-agent-bridge -g -a '*' -s '*' -y
 The [skills CLI](https://www.npmjs.com/package/skills) detects which agents are
 installed and copies the skill into each one's skills directory. One agent only:
 `-a claude` instead of `-a '*'`.
+
+**The installed directory is named after the frontmatter `name:` (`openclaw-magpie`),
+not the repository (`magpie-agent-bridge`).** Look in
+`~/.agents/skills/openclaw-magpie/` when verifying an install.
+
+To forward to someone else, give them natural language naming the method, the
+skill and the problem — see the `skill-publishing` skill for the shape:
+
+```
+请通过 npx -y skills@latest add MrFengcn/magpie-agent-bridge -g -a '*' -s '*' -y 的方式安装 openclaw-magpie 技能，来帮我解决 magpie 原生不支持 OpenClaw、导致 OpenClaw 无法使用 magpie 模型和路由组的问题。
+```
 
 By hand: clone the repo and copy it into the agent's skills directory
 (`~/.hermes/skills/`, `~/.claude/skills/`, `~/.agents/skills/`, `~/.codex/skills/`).
@@ -152,7 +163,11 @@ openclaw agent --session-key "agent:main:test" --message "say OK" \
 ```
 
 Expect `"winnerProvider": "magpie"` and `"winnerModel": "group/cheap-first"`.
-The trace lives under `result.meta.executionTrace` in the JSON output.
+
+The trace lives under **`result.meta.executionTrace`** in the JSON output — not at
+the top level and not directly under `result`. Parsing the wrong path yields
+`None` and a false "did not use magpie" verdict. The provider is also readable
+from `result.meta.agentMeta.provider` / `.model` as a fallback.
 
 OpenClaw parses model refs with `indexOf("/")` — first slash only — so
 `magpie/group/cheap-first` resolves to provider `magpie` + model
@@ -169,6 +184,63 @@ OpenClaw parses model refs with `indexOf("/")` — first slash only — so
 `OPENCLAW_CONFIG_PATH` overrides the config location — the script honours it,
 which is how it can be tested against a copy without touching the live config.
 
+## Keeping the two in sync
+
+magpie's model list changes whenever you add a provider account, a plugin or a
+routing group. Nothing pushes that into `openclaw.json` — a second sync has to run:
+
+```bash
+python3 scripts/magpie_openclaw_sync.py             # sync if needed, restart if changed
+python3 scripts/magpie_openclaw_sync.py --dry-run   # report only; exit 2 when it would change something
+python3 scripts/magpie_openclaw_sync.py --no-restart
+python3 scripts/magpie_openclaw_sync.py --force     # rewrite + restart even when nothing changed
+```
+
+It writes the same four places as `install`, but it also:
+
+- **removes** `magpie/*` refs whose model id the gateway no longer serves at all (an
+  id that merely stopped being a group/auto is left alone)
+- **refreshes** entries whose metadata drifted (same id, new context window or
+  display name) — comparing ids alone would leave stale metadata behind forever
+- backs up per run to `openclaw.json.bak-magpie-sync`, runs `openclaw config validate`
+  and **rolls back** on failure
+- restarts the gateway **only when something actually changed**
+
+It never touches `agents.defaults.model.primary` — if a removal invalidates the
+primary it says so and leaves the decision to you.
+
+To install the automation (script + skill + launchd + Hermes cron):
+
+```bash
+bash scripts/install-sync.sh            # add --no-launchd / --dry-run / --no-restart
+bash scripts/uninstall-sync.sh          # add --with-wiring / --purge
+```
+
+Scheduled two ways, both idempotent and cheap when nothing changed:
+
+- **Hermes cron** `magpie→OpenClaw 模型同步` — `no_agent: true`, every 30m, script
+  `magpie_openclaw_sync.py` (relative paths resolve under `~/.hermes/scripts/`).
+  `no_agent` means no LLM per tick: stdout is delivered verbatim and **empty stdout
+  sends nothing**, so the script prints to stdout only for real changes and
+  actionable failures; the routine "up to date" line is file-only.
+- **launchd** `~/Library/LaunchAgents/com.walter.magpie-openclaw-sync.plist` —
+  WatchPaths on `~/.config/magpie`, `providers.json` and `plugin-providers.json`
+  (magpie persists its catalog there, so a change there means the model list
+  probably moved) plus `StartInterval` 1800 as a backstop. **Not loaded by default:**
+  the Hermes gateway blocks `launchctl bootstrap`/`submit`, so load it from a plain
+  shell —
+  `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.walter.magpie-openclaw-sync.plist`
+
+Log: `~/.hermes/logs/magpie-openclaw-sync.log`.
+
+`references/sync-automation.md` has the long version: what each scheduling path does,
+the guardrails, the log files and a troubleshooting table.
+
+Two guardrails worth copying: the script refuses to write when the gateway serves
+fewer than 5 group/auto models (magpie is mid-restart with a half-loaded catalog —
+syncing then would gut the config), and "magpie unreachable" exits 0 silently
+(magpie being off is a normal state, not a failure to alert on every 30 minutes).
+
 ## Pitfalls
 
 - **magpie must be running.** The gateway is served by the magpie app. If magpie
@@ -178,6 +250,13 @@ which is how it can be tested against a copy without touching the live config.
   error. Use `gateway stop --force && gateway start`.
 - **Startup takes 30–60s.** `gateway start` may return before the listener is up.
   Verify with `curl -s http://127.0.0.1:18789/health`, not the command's exit code.
+- **`agents.defaults.model` exists in two shapes.** Hand edits and older configs
+  keep an object with a `primary` key; OpenClaw's own gateway rewrites it to the
+  bare model-ref string when the default model is changed out of band (observed
+  2026-10-27 15:40:37: `model` became magpie/group/cheap-first while its `.bak`
+  still held the object form). Read it defensively with an isinstance check, or
+  `doctor` dies with 'str object has no attribute get' the next time you switch a
+  model in the dashboard.
 - **Never use a bare `provider/model` id with a slashy model part.** OpenClaw
   would mis-split `openrouter/openai/gpt-6.1`. Use `group/*` or `auto/*`.
 - **A routing group is not a model.** `group/cheap-first` picks a *different
@@ -187,5 +266,10 @@ which is how it can be tested against a copy without touching the live config.
   account served the call; the model entries use `cost: 0`.
 - **`maxTokens` must be capped.** magpie advertises up to 524288 output tokens;
   OpenClaw's own ceiling is lower, so cap at 131072.
+- **magpie identifies the caller by User-Agent**, so OpenClaw's requests are logged as
+  `agent=openclaw` in `~/.config/magpie/usage.jsonl` even though magpie has no
+  OpenClaw agent. Use that log to confirm traffic is actually flowing.
 - **Don't paste real keys into the skill or a repo.** The gateway key is literally
   `magpie`; upstream keys live in magpie, not in OpenClaw's config.
+- **Test the install against a config copy, not the live file.** Point
+  `OPENCLAW_CONFIG_PATH` at a copy so a bad run cannot damage the real setup.

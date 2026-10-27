@@ -1,6 +1,6 @@
 {
   "name": "openclaw-magpie",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Wire OpenClaw onto magpie's local gateway, so it can use magpie's models, routing groups and subscription accounts.",
   "license": "MIT",
   "author": "Walter (MrFengcn)",
@@ -22,6 +22,7 @@
     "README.md",
     "LICENSE",
     "scripts/",
-    "references/"
+    "references/",
+    "tests/"
   ]
 }

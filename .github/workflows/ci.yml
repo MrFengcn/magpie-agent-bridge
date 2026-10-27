@@ -23,7 +23,14 @@ jobs:
           python-version: "3.9"
 
       - name: Syntax check
-        run: python -m py_compile scripts/openclaw_magpie.py
+        run: |
+          python -m py_compile scripts/openclaw_magpie.py
+          python -m py_compile scripts/magpie_openclaw_sync.py
+
+      - name: Shell scripts parse
+        run: |
+          bash -n scripts/install-sync.sh
+          bash -n scripts/uninstall-sync.sh
 
       - name: CLI works (help)
         run: python scripts/openclaw_magpie.py --help
@@ -48,7 +55,10 @@ jobs:
 
       - name: referenced files exist
         run: |
-          for f in scripts/openclaw_magpie.py references/platforms.md LICENSE; do
+          for f in scripts/openclaw_magpie.py scripts/magpie_openclaw_sync.py \
+                   scripts/install-sync.sh scripts/uninstall-sync.sh \
+                   references/platforms.md references/magpie-openclaw-sync.plist.template \
+                   references/sync-automation.md LICENSE; do
             test -f "$f" || { echo "missing: $f"; exit 1; }
           done
           echo "all referenced files present"

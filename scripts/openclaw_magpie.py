@@ -219,7 +219,11 @@ def wired_state(cfg: dict) -> dict:
         "models": len(models),
         "in_registry": sum(1 for m in models if f"magpie/{m.get('id')}" in registry),
         "in_allow": sum(1 for m in models if f"magpie/{m.get('id')}" in allow),
-        "primary": defaults.get("model", {}).get("primary"),
+        # `model` is written both as {"primary": "<ref>"} and as a bare string;
+        # OpenClaw's gateway rewrites it to the string form on some paths.
+        "primary": (defaults.get("model") or {}).get("primary")
+        if isinstance(defaults.get("model"), dict)
+        else defaults.get("model"),
     }
 
 
