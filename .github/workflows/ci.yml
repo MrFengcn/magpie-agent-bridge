@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+
+      - name: Syntax check
+        run: python -m py_compile scripts/magpie_bridge.py
+
+      - name: CLI works (help)
+        run: python scripts/magpie_bridge.py --help
+
+      - name: doctor runs (no gateway expected)
+        run: python scripts/magpie_bridge.py doctor || true
+
+      - name: Unit tests
+        run: python -m unittest discover -s tests -v
+
+  lint:
+    name: skill structure
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: SKILL.md has required frontmatter
+        run: |
+          head -20 SKILL.md | grep -q '^name: magpie-agent-bridge$'
+          head -20 SKILL.md | grep -q '^description:'
+          echo "frontmatter OK"
+
+      - name: referenced files exist
+        run: |
+          for f in scripts/magpie_bridge.py references/agent-catalog.md references/platforms.md LICENSE; do
+            test -f "$f" || { echo "missing: $f"; exit 1; }
+          done
+          echo "all referenced files present"
+
+      - name: no secrets in the repo
+        run: |
+          # The gateway key is the literal word "magpie" — never a real credential.
+          if grep -rInE "ghp_|gho_|github_pat_|sk-[A-Za-z0-9]{20,}|ark-[a-f0-9-]{30,}" \
+             --exclude-dir=.git . ; then
+            echo "::error::possible credential found in the repository"
+            exit 1
+          fi
+          echo "no credentials found"

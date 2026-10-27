@@ -366,50 +366,70 @@ def _yaml_scalar(value) -> str:
 
 
 def yaml_set(path: Path, dotted: str, value) -> None:
-    """Set a nested key in a small YAML file, preserving other content."""
+    """Set a nested key in a small YAML file, preserving other content.
+
+    Handles the shapes these agent configs use: a path of `a.b.c` where each
+    level is a mapping and the leaf is a scalar. Comments, ordering and
+    unrelated keys are left alone.
+    """
     text = path.read_text(encoding="utf-8") if path.exists() else ""
     lines = text.splitlines()
     parts = dotted.split(".")
 
-    def indent_of(l: str) -> int:
+    def ind(l: str) -> int:
         return len(l) - len(l.lstrip(" "))
 
-    def rec(idx: int, depth: int) -> list[str]:
-        # find the block for parts[depth]
-        if idx >= len(lines):
-            return lines
-        target_indent = None
-        for i in range(idx, len(lines)):
-            l = lines[i]
-            if not l.strip() or l.lstrip().startswith("#"):
+    def find_key(lst: list[str], name: str, start: int, level: int) -> int:
+        """Index of the `name:` line at exactly `level` indent, or -1."""
+        for i in range(start, len(lst)):
+            s = lst[i].strip()
+            if not s or s.startswith("#"):
                 continue
-            ind = indent_of(l)
-            if ind < depth:
-                break
-            if ind == depth and l.strip().split(":")[0].strip() == parts[depth]:
-                target_indent = ind
-                # replace or insert the value
-                if ":" in l and l.strip().split(":", 1)[1].strip():
-                    lines[i] = " " * ind + f"{parts[depth]}: {_yaml_scalar(value)}"
-                    return lines
-                # block start: descend
-                j = i + 1
-                while j < len(lines) and (not lines[j].strip() or indent_of(lines[j]) > ind):
-                    j += 1
-                if depth + 1 == len(parts):
-                    lines.insert(j, " " * (ind + 2) + f"{parts[-1]}: {_yaml_scalar(value)}")
-                else:
-                    lines = rec(j, ind + 2)
-                return lines
-        # not found: append a new block
-        lines.append(" " * depth + f"{parts[depth]}:")
-        if depth + 1 == len(parts):
-            lines.append(" " * (depth + 2) + f"{parts[-1]}: {_yaml_scalar(value)}")
-        else:
-            lines = rec(len(lines), depth + 2)
-        return lines
+            cur = ind(lst[i])
+            if cur < level:
+                return -1
+            if cur == level and s.split(":", 1)[0].strip() == name:
+                return i
+        return -1
 
-    lines = rec(0, 0)
+    def block_end(lst: list[str], i: int) -> int:
+        """Index just past the end of the block that starts at line i."""
+        base = ind(lst[i])
+        j = i + 1
+        while j < len(lst):
+            if lst[j].strip() and ind(lst[j]) <= base:
+                break
+            j += 1
+        return j
+
+    # locate the parent mapping, if it exists
+    parent_idx = -1
+    level = 0
+    search_from = 0
+    for part in parts[:-1]:
+        i = find_key(lines, part, search_from, level)
+        if i == -1:
+            parent_idx = -1
+            break
+        parent_idx = i
+        search_from = i + 1
+        level = ind(lines[i]) + 2
+
+    key = parts[-1]
+    if parent_idx == -1:
+        # the path does not exist yet — create it at the root
+        for n, part in enumerate(parts[:-1]):
+            lines.append(" " * (n * 2) + f"{part}:")
+        lines.append(" " * ((len(parts) - 1) * 2) + f"{key}: {_yaml_scalar(value)}")
+    else:
+        parent_indent = ind(lines[parent_idx])
+        i = find_key(lines, key, parent_idx + 1, parent_indent + 2)
+        if i != -1:
+            lines[i] = " " * ind(lines[i]) + f"{key}: {_yaml_scalar(value)}"
+        else:
+            lines.insert(block_end(lines, parent_idx),
+                         " " * (parent_indent + 2) + f"{key}: {_yaml_scalar(value)}")
+
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
