@@ -23,13 +23,13 @@ jobs:
           python-version: "3.9"
 
       - name: Syntax check
-        run: python -m py_compile scripts/magpie_bridge.py
+        run: python -m py_compile scripts/openclaw_magpie.py
 
       - name: CLI works (help)
-        run: python scripts/magpie_bridge.py --help
+        run: python scripts/openclaw_magpie.py --help
 
       - name: doctor runs (no gateway expected)
-        run: python scripts/magpie_bridge.py doctor || true
+        run: python scripts/openclaw_magpie.py doctor || true
 
       - name: Unit tests
         run: python -m unittest discover -s tests -v
@@ -42,13 +42,13 @@ jobs:
 
       - name: SKILL.md has required frontmatter
         run: |
-          head -20 SKILL.md | grep -q '^name: magpie-agent-bridge$'
+          head -20 SKILL.md | grep -q '^name: openclaw-magpie$'
           head -20 SKILL.md | grep -q '^description:'
           echo "frontmatter OK"
 
       - name: referenced files exist
         run: |
-          for f in scripts/magpie_bridge.py references/agent-catalog.md references/platforms.md LICENSE; do
+          for f in scripts/openclaw_magpie.py references/platforms.md LICENSE; do
             test -f "$f" || { echo "missing: $f"; exit 1; }
           done
           echo "all referenced files present"

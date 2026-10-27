@@ -1,9 +1,8 @@
-# magpie-agent-bridge
+# openclaw-magpie
 
-**One gateway, every agent.** Point OpenClaw, Hermes, Codex, Claude Code, Gemini CLI,
-Qwen Code, OpenCode, Droid, Cline, Zed, Cursor CLI, Goose, Kimi Code and any other
-agent CLI at [magpie](https://usemagpie.ai)'s local gateway — so one account pool and
-one routing layer serve all of them.
+**Let OpenClaw use magpie.** magpie natively drives Hermes, Codex, Claude Code,
+Qwen Code, OpenCode, dsh and ~60 other agents — but not OpenClaw. This skill is the
+bridge for that one gap.
 
 Cross-platform: **macOS, Windows, Linux**. Python 3.9+, standard library only.
 
@@ -23,11 +22,18 @@ magpie: unknown agent "openclaw" (try: agy, air, alma, ante, aside, astrbot, ...
 ```
 
 That is not a limitation to work around — it is the design. **The agent is the client,
-magpie is the server.** For the ~64 agents magpie knows (Claude Code, Codex, Gemini
-CLI, Hermes, Qwen Code, OpenCode, dsh, Zed, Cursor CLI, Goose, Kimi Code, Droid,
-Cline, WorkBuddy, Raycast, VS Code Chat, Copilot CLI, …) use magpie's own CLI, which
-edits each agent's config format properly. For everything else — OpenClaw included —
-point it at the gateway yourself.
+magpie is the server.** For the ~60 agents magpie knows, one command does it:
+
+```bash
+magpie hermes group/cheap-first      # Hermes
+magpie codex group/cheap-first       # Codex
+magpie claude group/cheap-first      # Claude Code
+magpie ls                            # what magpie sees on this machine
+```
+
+OpenClaw is the one that needs wiring by hand, because it has no OpenAI-compatible
+server of its own (`/v1/models` and `/v1/chat/completions` on its gateway both 404).
+This skill does that one job.
 
 ---
 
@@ -42,8 +48,7 @@ supports skills:
 npx -y skills@latest add MrFengcn/magpie-agent-bridge -g -a '*' -s '*' -y
 ```
 
-That installs `magpie-agent-bridge` into every agent on the machine. The
-[skills CLI](https://www.npmjs.com/package/skills) detects which agents you run
+The [skills CLI](https://www.npmjs.com/package/skills) detects which agents you run
 and installs into each one's skills directory.
 
 To install into one agent only:
@@ -52,71 +57,40 @@ To install into one agent only:
 npx -y skills@latest add MrFengcn/magpie-agent-bridge -g -a claude -y
 ```
 
-### As a skill, by hand
+### By hand
 
 ```bash
 git clone https://github.com/MrFengcn/magpie-agent-bridge.git
-cp -r magpie-agent-bridge ~/.hermes/skills/        # or ~/.claude/skills/, ~/.agents/skills/, …
+cp -r magpie-agent-bridge ~/.hermes/skills/    # or ~/.claude/skills/, ~/.agents/skills/, …
 ```
-
-### As a standalone tool
-
-```bash
-git clone https://github.com/MrFengcn/magpie-agent-bridge.git
-cd magpie-agent-bridge
-python3 scripts/magpie_bridge.py doctor
-```
-
-Requirements: Python 3.9+ and magpie running (`magpie autostart on` on macOS keeps it
-up at login).
 
 ---
 
 ## Use
 
 ```bash
-# Check the gateway and list every agent on this machine
-python3 scripts/magpie_bridge.py doctor
+# Is the gateway up, and is OpenClaw already wired?
+python3 scripts/openclaw_magpie.py doctor
 
 # What models are available?
-python3 scripts/magpie_bridge.py list
+python3 scripts/openclaw_magpie.py list
 
-# Point agents at the gateway
-python3 scripts/magpie_bridge.py install claude
-python3 scripts/magpie_bridge.py install openclaw hermes codex
+# Wire OpenClaw (writes the config, then validates it)
+python3 scripts/openclaw_magpie.py install
 
-# Prove it works end to end
-python3 scripts/magpie_bridge.py verify --model group/cheap-first
+# Restart the gateway — it must be stopped first
+openclaw gateway stop --force && openclaw gateway start
+curl -s http://127.0.0.1:18789/health     # startup takes 30–60s
 
-# Look at one agent
-python3 scripts/magpie_bridge.py show hermes
+# Prove it with a real turn
+python3 scripts/openclaw_magpie.py verify
 
 # Undo
-python3 scripts/magpie_bridge.py uninstall hermes
+python3 scripts/openclaw_magpie.py uninstall
 ```
 
-### Or use magpie's own CLI
-
-For every agent magpie knows, its CLI is better — it edits the agent's own config
-format and preserves comments and ordering:
-
-```bash
-magpie ls                              # what magpie sees on this machine
-magpie claude group/cheap-first       # Claude Code on the routing group
-magpie codex group/cheap-first        # Codex
-magpie hermes group/cheap-first       # Hermes
-magpie <agent> default                # take magpie out, restore what was there
-```
-
-### Or just export two variables
-
-Works with almost anything, and touches no config file:
-
-```bash
-export OPENAI_BASE_URL=http://127.0.0.1:3425/v1     OPENAI_API_KEY=magpie
-export ANTHROPIC_BASE_URL=http://127.0.0.1:3425     ANTHROPIC_API_KEY=magpie
-export GOOGLE_GEMINI_BASE_URL=http://127.0.0.1:3425 GEMINI_API_KEY=magpie
-```
+`install` backs up `openclaw.json` to `openclaw.json.bak-openclaw-magpie`;
+`uninstall` restores it.
 
 ---
 
@@ -129,18 +103,25 @@ common mistake:
 |---|---|---|
 | Routing group | `group/cheap-first` | ✅ **Best.** Fails over between accounts automatically |
 | Auto group | `auto/glm-5.3` | ✅ One logical model, several providers behind it |
-| Bare provider model | `openrouter/openai/gpt-6.1-terra-pro` | ⚠️ The model part has slashes — ambiguous for `provider/model` agents |
+| Bare provider model | `openrouter/openai/gpt-6.1-terra-pro` | ⚠️ The model part has slashes — ambiguous for `provider/model` |
 
 A routing group is what magpie is for: when one account's quota runs out, the next
 one takes over and the agent never sees an error.
 
 ---
 
-## OpenClaw, specifically
+## The four places a model must appear
 
-OpenClaw has no OpenAI-compatible server of its own (`/v1/models` and
-`/v1/chat/completions` on its gateway both 404), so it must be a *client* of the
-magpie gateway. Add a provider to `~/.openclaw/openclaw.json`:
+Adding a provider is not enough. OpenClaw reads models from **four** places in
+`~/.openclaw/openclaw.json`, and all four are required:
+
+1. `models.providers.magpie.models[]`
+2. `agents.defaults.models["magpie/<id>"] = {}`
+3. `agents.defaults.modelPolicy.allow[]` ← **the sneaky one.** Miss it and the model
+   stays invisible in the picker and the default silently reverts
+4. `agents.defaults.model.primary` — only if it should become the default
+
+The script handles all of them.
 
 ```json
 "magpie": {
@@ -157,28 +138,6 @@ magpie gateway. Add a provider to `~/.openclaw/openclaw.json`:
 }
 ```
 
-Then sync **four** places in the same file — all four are required:
-
-1. `models.providers.magpie.models[]`
-2. `agents.defaults.models["magpie/<id>"] = {}`
-3. `agents.defaults.modelPolicy.allow[]` ← **the sneaky one.** Miss it and the model
-   stays invisible in the picker and the default silently reverts
-4. `agents.defaults.model.primary` — only if it should become the default
-
-```bash
-openclaw config validate
-openclaw gateway stop --force && openclaw gateway start
-curl -s http://127.0.0.1:18789/health     # startup takes 30–60s
-
-openclaw agent --session-key "agent:main:test" --message "say OK" \
-  --model "magpie/group/cheap-first" --json
-# expect "winnerProvider": "magpie", "winnerModel": "group/cheap-first"
-```
-
-OpenClaw parses model refs with `indexOf("/")` — first slash only — so
-`magpie/group/cheap-first` resolves to provider `magpie` + model `group/cheap-first`
-correctly.
-
 ---
 
 ## Layout
@@ -189,10 +148,11 @@ magpie-agent-bridge/
 ├── README.md
 ├── LICENSE                         # MIT
 ├── scripts/
-│   └── magpie_bridge.py            # cross-platform installer / doctor / verifier
+│   └── openclaw_magpie.py          # doctor / list / install / uninstall / verify
+├── tests/
+│   └── test_openclaw_magpie.py
 └── references/
-    ├── agent-catalog.md            # all 64 agents: config file + managed fields
-    └── platforms.md                # macOS / Windows / Linux paths and differences
+    └── platforms.md                # macOS / Windows / Linux specifics
 ```
 
 ---
@@ -200,21 +160,17 @@ magpie-agent-bridge/
 ## Pitfalls
 
 - **magpie must be running.** The gateway is served by the magpie app. If it quits,
-  every agent pointed at it fails. `magpie autostart on` on macOS.
-- **Never use a bare `provider/model` id with a slashy model part.** Agents that
-  address models as `provider/model` will mis-split `openrouter/openai/gpt-6.1`.
-  Use `group/*` or `auto/*`.
-- **A routing group is not a model.** `group/cheap-first` picks a *different*
-  underlying model per account. If you need one specific model, name it or use an
-  `auto/*` group.
-- **Back up before editing.** The bridge writes `<file>.magpie-bridge-bak` next to
-  the config; `uninstall` restores it.
-- **Restart the agent after a config change.** Most agents read their config at
-  start-up, not per request.
-- **Cost reporting is meaningless for these models.** magpie's price depends on which
-  upstream account served the call; the bridge writes `cost: 0`.
-- **OpenClaw needs the gateway stopped before it will restart.** `gateway restart`
+  every OpenClaw request to it fails. `magpie autostart on` on macOS.
+- **OpenClaw's gateway must be stopped before it will restart.** `gateway restart`
   refuses while it is running, and `doctor --fix` fails with a state-DB lock error.
+- **Startup takes 30–60s.** `gateway start` may return before the listener is up.
+  Check `curl -s http://127.0.0.1:18789/health`.
+- **Never use a bare `provider/model` id with a slashy model part.** OpenClaw would
+  mis-split `openrouter/openai/gpt-6.1`. Use `group/*` or `auto/*`.
+- **A routing group is not a model.** `group/cheap-first` picks a *different*
+  underlying model per account.
+- **Cost reporting is meaningless here.** magpie's price depends on which upstream
+  account served the call; the model entries use `cost: 0`.
 
 ---
 

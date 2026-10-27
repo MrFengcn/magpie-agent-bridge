@@ -1,7 +1,7 @@
 {
-  "name": "magpie-agent-bridge",
-  "version": "1.0.0",
-  "description": "Wire any AI agent CLI (OpenClaw, Hermes, Codex, Claude Code, Gemini CLI, ...) onto magpie's local gateway.",
+  "name": "openclaw-magpie",
+  "version": "2.0.0",
+  "description": "Wire OpenClaw onto magpie's local gateway, so it can use magpie's models, routing groups and subscription accounts.",
   "license": "MIT",
   "author": "Walter (MrFengcn)",
   "homepage": "https://github.com/MrFengcn/magpie-agent-bridge",
@@ -12,14 +12,10 @@
   "keywords": [
     "magpie",
     "openclaw",
-    "hermes",
-    "codex",
-    "claude-code",
-    "gemini-cli",
-    "ai-agent",
     "llm-gateway",
     "model-router",
-    "skill"
+    "agent-skill",
+    "openai-compatible"
   ],
   "files": [
     "SKILL.md",
