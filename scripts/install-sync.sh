@@ -73,13 +73,21 @@ step "5/5 cron（每 30 分钟兜底，纯脚本不烧 LLM）"
 if ! command -v hermes >/dev/null 2>&1; then
   echo "   ! 没找到 hermes CLI，请在 Hermes 里手动建一个任务："
   echo "     no_agent=true  script=magpie_openclaw_sync.py  schedule=every 30m"
-elif hermes cron list 2>/dev/null | grep -q "magpie_openclaw_sync.py"; then
-  echo "   ✓ 已存在，跳过（$(hermes cron list 2>/dev/null | awk '/^[[:space:]]+[0-9a-f]+ /{id=$1} /magpie_openclaw_sync\.py/{print id; exit}')）"
-elif hermes cron create --name "$JOB_NAME" --deliver origin \
-        --script magpie_openclaw_sync.py --no-agent "every 30m" >/dev/null 2>&1; then
-  echo "   ✓ cron 已注册：每 30 分钟跑一次，没变化就完全静默"
 else
-  echo "   ! 注册失败，请在 Hermes 里手动建：no_agent=true script=magpie_openclaw_sync.py every 30m"
+  # `hermes cron` always talks to the real profile store, whatever HOME says.
+  # Only touch cron when this run targets the real Hermes directory, otherwise a
+  # sandbox install would hijack (or skip) the live job.
+  REAL_HOME="$(python3 -c 'import os,pwd;print(pwd.getpwuid(os.getuid()).pw_dir)' 2>/dev/null || echo "$HOME")"
+  if [[ "$HERMES_DIR" != "$REAL_HOME/.hermes" ]]; then
+    echo "   跳过 — HERMES_DIR 不是真实的 ~/.hermes，hermes cron 只认真实配置"
+  elif hermes cron list 2>/dev/null | grep -q "magpie_openclaw_sync.py"; then
+    echo "   ✓ 已存在，跳过（$(hermes cron list 2>/dev/null | awk '/^[[:space:]]+[0-9a-f]+ /{id=$1} /magpie_openclaw_sync\.py/{print id; exit}')）"
+  elif hermes cron create --name "$JOB_NAME" --deliver origin \
+          --script magpie_openclaw_sync.py --no-agent "every 30m" >/dev/null 2>&1; then
+    echo "   ✓ cron 已注册：每 30 分钟跑一次，没变化就完全静默"
+  else
+    echo "   ! 注册失败，请在 Hermes 里手动建：no_agent=true script=magpie_openclaw_sync.py every 30m"
+  fi
 fi
 
 printf '\n\033[1m完成。\033[0m 常用命令：\n'

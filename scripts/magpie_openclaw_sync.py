@@ -155,14 +155,33 @@ def write_config(cfg: dict) -> None:
 
 
 def validate_config() -> tuple[bool, str]:
+    """Validate the file this script is about to write.
+
+    `openclaw config validate` picks its own config path and ignores
+    OPENCLAW_CONFIG_PATH, so with a different HOME it would validate a different
+    file than the one being synced. Pass the target explicitly and treat a
+    mismatch as "could not validate" rather than "invalid".
+    """
     exe = openclaw_bin()
     if not exe:
         return True, "(openclaw binary not found — skipped validation)"
+    # `openclaw config validate` reads the file named by OPENCLAW_CONFIG_PATH,
+    # but only when that variable is in its environment. Pass it explicitly so
+    # the file being validated is always the file being written.
+    env = dict(os.environ, OPENCLAW_CONFIG_PATH=str(CONFIG))
     try:
-        p = subprocess.run([exe, "config", "validate"], capture_output=True, text=True, timeout=120)
+        p = subprocess.run(
+            [exe, "config", "validate"],
+            capture_output=True, text=True, timeout=120, env=env,
+        )
     except (subprocess.TimeoutExpired, OSError) as e:
         return False, f"validate could not run: {e}"
-    return p.returncode == 0, (p.stdout + p.stderr).strip()
+    out = (p.stdout + p.stderr).strip()
+    # the CLI reports the file it checked; if it is not ours, the check is
+    # meaningless — do not mistake that for a broken config
+    if p.returncode != 0 and str(CONFIG) not in out and "Config valid" not in out:
+        return True, f"(validate did not report on {CONFIG} — skipped)"
+    return p.returncode == 0, out
 
 
 def read_primary(defaults: dict) -> str | None:
@@ -203,6 +222,18 @@ def compute_plan(cfg: dict, picked: list[dict], all_ids: set[str]) -> dict:
     drop_registry = stale(registry.keys())
     drop_allow = stale(allow)
 
+    # The provider's model list is not the whole story. A model can be listed in
+    # models.providers.magpie.models[] yet missing from the registry or from
+    # modelPolicy.allow — the exact failure this whole skill exists to prevent
+    # ("invisible in the picker, default silently reverts"). Compare all three
+    # lists against what the gateway serves, not just the provider's.
+    missing_registry = sorted(
+        ref for ref in (f"magpie/{mid}" for mid in want_ids) if ref not in registry
+    )
+    missing_allow = sorted(
+        ref for ref in (f"magpie/{mid}" for mid in want_ids) if ref not in allow
+    )
+
     wire_ok = (
         bool(mag)
         and mag.get("baseUrl") == f"{GATEWAY}/v1"
@@ -223,6 +254,7 @@ def compute_plan(cfg: dict, picked: list[dict], all_ids: set[str]) -> dict:
 
     unchanged = (
         not add and not drop_registry and not drop_allow and not drift
+        and not missing_registry and not missing_allow
         and wire_ok and len(cur_ids) == len(want_ids)
     )
     return {
@@ -230,6 +262,8 @@ def compute_plan(cfg: dict, picked: list[dict], all_ids: set[str]) -> dict:
         "drop_registry": drop_registry,
         "drop_allow": drop_allow,
         "drift": drift,
+        "missing_registry": missing_registry,
+        "missing_allow": missing_allow,
         "wire_ok": wire_ok,
         "cur": sorted(cur_ids),
         "want": sorted(want_ids),
@@ -264,8 +298,18 @@ def apply_plan(cfg: dict, plan: dict) -> int:
         registry.setdefault(ref, {})
         if ref not in allow:
             allow.append(ref)
+
+    # repair a model that is in the provider's list but missing from the
+    # registry or from modelPolicy.allow — the failure mode that makes a model
+    # invisible in the picker while everything "looks" configured
+    for ref in plan.get("missing_registry", []):
+        registry.setdefault(ref, {})
+    for ref in plan.get("missing_allow", []):
+        if ref not in allow:
+            allow.append(ref)
     # drifted ids are refreshed by the wholesale provider rewrite above
-    return len(plan["add"]) + len(plan.get("drift", []))
+    repaired = len(set(plan.get("missing_registry", [])) | set(plan.get("missing_allow", [])))
+    return len(plan["add"]) + len(plan.get("drift", [])) + repaired
 
 
 # --------------------------------------------------------------- gateway ops -
@@ -335,6 +379,9 @@ def main() -> int:
         log("- remove   : " + ", ".join(sorted(set(plan["drop_allow"]) | set(plan["drop_registry"]))))
     if plan.get("drift"):
         log("~ update   : " + ", ".join(plan["drift"]) + " (metadata changed)")
+    if plan.get("missing_registry") or plan.get("missing_allow"):
+        fixed = sorted(set(plan.get("missing_registry", [])) | set(plan.get("missing_allow", [])))
+        log("~ repair   : " + ", ".join(fixed) + " (missing from registry/allow)")
     if not plan["wire_ok"]:
         log("~ rewire   : provider magpie block was missing or pointed elsewhere")
     if gone_primary:
@@ -342,9 +389,10 @@ def main() -> int:
             f"OpenClaw will fall back. Set a new one if that matters.")
 
     if args.dry_run:
+        n_repair = len(set(plan.get("missing_registry", [])) | set(plan.get("missing_allow", [])))
         log(f"dry run — nothing written ({len(plan['add'])} to add, "
             f"{len(set(plan['drop_allow']) | set(plan['drop_registry']))} to drop, "
-            f"{len(plan.get('drift', []))} to update)",
+            f"{len(plan.get('drift', []))} to update, {n_repair} to repair)",
             notify=False)
         return 2
 

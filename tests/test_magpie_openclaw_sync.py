@@ -127,6 +127,44 @@ class TestComputePlan(unittest.TestCase):
         self.assertEqual(plan["drift"], [])
         self.assertTrue(plan["unchanged"])
 
+
+    def test_detects_missing_registry_entry(self):
+        """A model in the provider list but missing from the registry is the
+        exact failure the skill exists to prevent — the sync must repair it."""
+        cfg = base_config([{"id": "group/g"}, {"id": "auto/x"}])
+        del cfg["agents"]["defaults"]["models"]["magpie/auto/x"]
+        plan = s.compute_plan(cfg, [{"id": "group/g"}, {"id": "auto/x"}],
+                              {"group/g", "auto/x"})
+        self.assertFalse(plan["unchanged"])
+        self.assertEqual(plan["missing_registry"], ["magpie/auto/x"])
+
+    def test_detects_missing_allow_entry(self):
+        """Missing from modelPolicy.allow — invisible in the picker."""
+        cfg = base_config([{"id": "group/g"}, {"id": "auto/x"}])
+        cfg["agents"]["defaults"]["modelPolicy"]["allow"].remove("magpie/auto/x")
+        plan = s.compute_plan(cfg, [{"id": "group/g"}, {"id": "auto/x"}],
+                              {"group/g", "auto/x"})
+        self.assertFalse(plan["unchanged"])
+        self.assertEqual(plan["missing_allow"], ["magpie/auto/x"])
+
+    def test_apply_plan_repairs_missing_entries(self):
+        cfg = base_config([{"id": "group/g"}, {"id": "auto/x"}])
+        d = cfg["agents"]["defaults"]
+        del d["models"]["magpie/auto/x"]
+        d["modelPolicy"]["allow"].remove("magpie/auto/x")
+        plan = s.compute_plan(cfg, [{"id": "group/g"}, {"id": "auto/x"}],
+                              {"group/g", "auto/x"})
+        s.apply_plan(cfg, plan)
+        self.assertIn("magpie/auto/x", d["models"])
+        self.assertIn("magpie/auto/x", d["modelPolicy"]["allow"])
+
+    def test_no_missing_when_all_three_lists_agree(self):
+        cfg = base_config([{"id": "group/g"}])
+        plan = s.compute_plan(cfg, [{"id": "group/g"}], {"group/g"})
+        self.assertEqual(plan["missing_registry"], [])
+        self.assertEqual(plan["missing_allow"], [])
+        self.assertTrue(plan["unchanged"])
+
     def test_detects_broken_wiring(self):
         cfg = base_config()
         cfg["models"]["providers"]["magpie"]["api"] = "openai-responses"
